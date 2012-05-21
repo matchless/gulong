@@ -110,11 +110,11 @@ lingxi = sgs.CreateTriggerSkill {
 	name = "lingxi",
 	on_trigger = function(self, event, player, data)
 		local room = player:getRoom()
-		local players = room:getOtherPlayers(player)
 		local card = data:toCardEffect().card
 		local log = sgs.LogMessage()
 		log.type = "#lingxi"
 		log.from = player
+		log.arg = card:objectName()
 		if event == sgs.CardEffected and (card:inherits("Slash") or card:inherits("Duel") or card:inherits("SavageAssault") or card:inherits("ArcheryAttack")) then
 			if not room:askForSkillInvoke(player, "lingxi") then
 				return false
@@ -143,12 +143,8 @@ feidao = sgs.CreateTriggerSkill {
 		local room = player:getRoom()
 		local use = data:toCardUse()
 		local card = use.card
-		local log = sgs.LogMessage()
-		log.type = "#feidao"
-		log.from = player
 		if event == sgs.CardUsed and not player:hasFlag("feidao_used") then
 			if card:inherits("Slash") then
-				room:sendLog(log)
 				for _, p in sgs.qlist(use.to) do
 					p:addMark("qinggang")
 				end
@@ -160,6 +156,17 @@ feidao = sgs.CreateTriggerSkill {
 				room:setPlayerFlag(player, "-feidao_used")
 				return true
 			end
+		end
+	end,
+}
+
+--出尘 - 无花
+--锁定技，你不能成为【乐不思蜀】和【兵粮寸断】的目标
+chuchen = sgs.CreateProhibitSkill {
+	name = "chuchen",
+	is_prohibited = function(self, from, to, card)
+		if (to:hasSkill(self:objectName())) then
+			return card:inherits("Indulgence") or card:inherits("SupplyShortage")
 		end
 	end,
 }
@@ -198,6 +205,10 @@ luxiaofeng : addSkill(lingxi)
 lixunhuan = sgs.General(extension, "lixunhuan", "qun", 4, true)
 lixunhuan : addSkill(feidao)
 
+--无花
+wuhua = sgs.General(extension, "wuhua", "qun", 4, true)
+wuhua : addSkill(chuchen)
+
 --霍休
 huoxiu = sgs.General(extension, "huoxiu", "qun", 4, true)
 huoxiu : addSkill(cangfu)
@@ -220,14 +231,19 @@ sgs.LoadTranslationTable {
 		["designer:luxiaofeng"] = "布景",
 			["lingxi"] = "灵犀",
 			[":lingxi"] = "当你成为【杀】、【决斗】、【南蛮入侵】或【万箭齐发】的目标时，你可以进行一次判定，若结果为红色，则此【杀】、【决斗】、【南蛮入侵】或【万箭齐发】对你无效",
-			["#lingxi"] = "陆小凤的灵犀一指，夹尽天下神兵",
+			["#lingxi"] = "%from 使用了<b>【<font color='yellow'>灵犀</font>】</b>技能，<b>%arg</b> 无效",
 
 		["lixunhuan"] = "李寻欢",
 		["#lixunhuan"] = "探花郎",
 		["designer:lixunhuan"] = "布景",
 			["feidao"] = "飞刀",
 			[":feidao"] = "<b>锁定技</b>，你使用的【杀】，无视角色防具",
-			["#feidao"] = "李寻欢的飞刀，无视角色防具",
+
+		["wuhua"] = "无花",
+		["#wuhua"] = "妙僧",
+		["designer:wuhua"] = "布景",
+			["chuchen"] = "出尘",
+			[":chuchen"] = "<b>锁定技</b>，你不能成为【乐不思蜀】和【兵粮寸断】的目标",
 
 		["huoxiu"] = "霍休",
 		["#huoxiu"] = "富甲天下",
