@@ -98,7 +98,7 @@ tayue = sgs.CreateDistanceSkill {
 		end
 		return correct
 	end,
-	frequency=sgs.Skill_Compulsory,
+	frequency = sgs.Skill_Compulsory,
 	name = "tayue",
 }
 
