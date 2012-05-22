@@ -171,6 +171,30 @@ chuchen = sgs.CreateProhibitSkill {
 	end,
 }
 
+--诈死 - 无花
+--限定技，当你处于濒死状态时，你可以减一点体力上限，并弃置所有的牌和你判定区里的牌，然后将你的武将牌翻至正面朝上，并重置之，体力回复至满血状态且补满手牌
+zhasi = sgs.CreateTriggerSkill {
+	events = sgs.Death,
+	frequency = sgs.Skill_Limited,
+	name = "zhasi",
+	on_trigger = function(self, event, player, data)
+		room:loseMaxHp(player, 1)
+		player:throwAllCards()
+		player:setFaceUp()
+		player:setChained()
+
+		local recover = sgs.RecoverStruct()
+		recover.reason = "zhasi"
+		recover.who = player
+		recover.recover = player:getMaxHp()
+		room:recover(player, recover)
+
+		room:setPlayerProperty(player, "hp", sgs.QVariant(player:getMaxHp()))
+
+		player:drawCards(player:getHp())
+	end,
+}
+
 --藏富 - 霍休
 --锁定技，你的手牌上限始终等于你的体力上限
 cangfu = sgs.CreateTriggerSkill {
