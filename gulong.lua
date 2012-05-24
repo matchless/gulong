@@ -3,7 +3,7 @@ module("extensions.gulong", package.seeall)
 extension = sgs.Package("gulong")
 
 --盗帅 - 楚留香
---摸牌阶段，你可以额外随机获得一名其他角色的一张手牌
+--摸牌阶段，你可以额外抽取一名其他角色的一张手牌或装备牌
 daoshuai_card = sgs.CreateSkillCard {
 	filter = function(self, targets, to_select, player)
 		if #targets > 0 then
@@ -12,14 +12,14 @@ daoshuai_card = sgs.CreateSkillCard {
 		if to_select:objectName() == player:objectName() then
 			return false
 		end
-		return not to_select:isKongcheng()
+		return not to_select:isKongcheng() or to_select:hasEquip()
 	end,
 	name = "daoshuai_card",
 	on_effect = function(self, effect)
 		local from = effect.from
 		local to = effect.to
 		local room = to:getRoom()
-		local card_id = room:askForCardChosen(from, to, "h", "daoshuai")
+		local card_id = room:askForCardChosen(from, to, "he", "daoshuai")
 		local card = sgs.Sanguosha:getCard(card_id)
 		room:moveCardTo(card, from, sgs.Player_Hand, false)
 		room:setEmotion(to, "bad")
@@ -172,26 +172,27 @@ chuchen = sgs.CreateProhibitSkill {
 }
 
 --诈死 - 无花
---限定技，当你处于濒死状态时，你可以减一点体力上限，并弃置所有的牌和你判定区里的牌，然后将你的武将牌翻至正面朝上，并重置之，体力回复至满血状态且补满手牌
+--限定技，当你处于濒死状态时，你可以减1点体力上限，并弃置所有的牌和你判定区里的牌，然后将你的武将牌翻至正面朝上，并重置之，体力回复至满血状态且补满手牌
 zhasi = sgs.CreateTriggerSkill {
-	events = sgs.Death,
+	events = sgs.Dying,
 	frequency = sgs.Skill_Limited,
 	name = "zhasi",
 	on_trigger = function(self, event, player, data)
-		room:loseMaxHp(player, 1)
-		player:throwAllCards()
-		player:setFaceUp()
-		player:setChained()
-
-		local recover = sgs.RecoverStruct()
-		recover.reason = "zhasi"
-		recover.who = player
-		recover.recover = player:getMaxHp()
-		room:recover(player, recover)
-
-		room:setPlayerProperty(player, "hp", sgs.QVariant(player:getMaxHp()))
-
-		player:drawCards(player:getHp())
+		local room = player:getRoom()
+		if player:getMark("limited") == 0 and event == sgs.Dying then
+			if not room:askForSkillInvoke(player, "zhasi") then
+				return false
+			end
+			room:loseMaxHp(player, 1)
+			player:bury()
+			player:setFaceUp(true)
+			room:setPlayerProperty(player, "chained", sgs.QVariant(false))
+			local pmh = player:getMaxHp()
+			room:setPlayerProperty(player, "hp", sgs.QVariant(pmh))
+			player:drawCards(pmh)
+			room:setPlayerMark(player, "limited", 1)
+			return true 
+		end
 	end,
 }
 
@@ -215,6 +216,40 @@ cangfu = sgs.CreateTriggerSkill {
 	end,
 }
 
+--妙手 - 司空摘星
+--出牌阶段，你可以将你的一张梅花手牌当【顺手牵羊】使用
+miaoshou = sgs.CreateViewAsSkill {
+	n = 1,
+	name = "miaoshou",
+	view_as = function(self, cards)
+		if #cards < 1 then
+			return nil
+		end
+		local suit, number
+		for _, card in ipairs(cards) do
+			if suit and (suit ~= card:getSuit()) then
+				suit = sgs.Card_NoSuit
+			else
+				suit = card:getSuit()
+			end
+			if number and (number ~= card:getNumber()) then
+				number = -1
+			else
+				number = card:getNumber()
+			end
+		end
+		local view_as_card = sgs.Sanguosha:cloneCard("snatch", suit, number)
+		for _, card in ipairs(cards) do
+			view_as_card:addSubcard(card:getId())
+		end
+		view_as_card:setSkillName(self:objectName())
+		return view_as_card
+	end,
+	view_filter = function(self, selected, to_select)
+		return to_select:getSuit() == sgs.Card_Club and not to_select:isEquipped()
+	end,
+}
+
 --楚留香
 chuliuxiang = sgs.General(extension, "chuliuxiang", "qun", 3, true)
 chuliuxiang : addSkill(daoshuai)
@@ -232,10 +267,15 @@ lixunhuan : addSkill(feidao)
 --无花
 wuhua = sgs.General(extension, "wuhua", "qun", 4, true)
 wuhua : addSkill(chuchen)
+wuhua : addSkill(zhasi)
 
 --霍休
 huoxiu = sgs.General(extension, "huoxiu", "qun", 4, true)
 huoxiu : addSkill(cangfu)
+
+--司空摘星
+sikongzhaixing = sgs.General(extension, "sikongzhaixing", "qun", 4, true)
+sikongzhaixing : addSkill(miaoshou)
 
 sgs.LoadTranslationTable {
 	["gulong"] = "古龙",
@@ -244,7 +284,7 @@ sgs.LoadTranslationTable {
 		["#chuliuxiang"] = "人间不见",
 		["designer:chuliuxiang"] = "布景",
 			["daoshuai"] = "盗帅",
-			[":daoshuai"] = "摸牌阶段，你可以额外随机获得一名其他角色的一张手牌",
+			[":daoshuai"] = "摸牌阶段，你可以额外抽取一名其他角色的一张手牌或装备牌",
 			["daoshuai_card"] = "盗帅",
 			["@daoshuai_card"] = "盗帅",
 			["liuxiang"] = "留香",
@@ -268,10 +308,18 @@ sgs.LoadTranslationTable {
 		["designer:wuhua"] = "布景",
 			["chuchen"] = "出尘",
 			[":chuchen"] = "<b>锁定技</b>，你不能成为【乐不思蜀】和【兵粮寸断】的目标",
+			["zhasi"] = "诈死",
+			[":zhasi"] = "<b>限定技</b>，当你处于濒死状态时，你可以减1点体力上限，并弃置所有的牌和你判定区里的牌，然后将你的武将牌翻至正面朝上，并重置之，体力回复至满血状态且补满手牌",
 
 		["huoxiu"] = "霍休",
 		["#huoxiu"] = "富甲天下",
 		["designer:huoxiu"] = "布景",
 			["cangfu"] = "藏富",
 			[":cangfu"] = "<b>锁定技</b>，你的手牌上限始终等于你的体力上限",
+
+		["sikongzhaixing"] = "司空摘星",
+		["#sikongzhaixing"] = "偷王之王",
+		["designer:sikongzhaixing"] = "布景",
+			["miaoshou"] = "妙手",
+			[":miaoshou"] = "出牌阶段，你可以将你的一张梅花手牌当【顺手牵羊】使用",
 }
