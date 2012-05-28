@@ -48,7 +48,7 @@ daoshuai = sgs.CreateTriggerSkill {
 			local can_invoke = false
 			local other = room:getOtherPlayers(player)
 			for _, p in sgs.qlist(other) do
-				if not p:isKongcheng() then
+				if not p:isKongcheng() or p:hasEquip() then
 					can_invoke = true
 					break
 				end
@@ -103,7 +103,7 @@ tayue = sgs.CreateDistanceSkill {
 }
 
 --灵犀 - 陆小凤
---当你成为【杀】、【决斗】、【南蛮入侵】或【万箭齐发】的目标时，你可以进行一次判定，若结果为红色，则此【杀】、【决斗】、【南蛮入侵】或【万箭齐发】对你无效
+--当你成为【杀】或【万箭齐发】的目标时，你可以进行一次判定，若结果为红色，则此【杀】或【万箭齐发】对你无效，若判定失败，你获得该判定牌；当你成为【决斗】或【南蛮入侵】的目标时，你可以进行一次判定，若结果为黑色，则此【决斗】或【南蛮入侵】对你无效，若判定失败，你获得该判定牌
 lingxi = sgs.CreateTriggerSkill {
 	events = sgs.CardEffected,
 	frequency = sgs.Skill_Frequency,
@@ -115,26 +115,61 @@ lingxi = sgs.CreateTriggerSkill {
 		log.type = "#lingxi"
 		log.from = player
 		log.arg = card:objectName()
-		if event == sgs.CardEffected and (card:inherits("Slash") or card:inherits("Duel") or card:inherits("SavageAssault") or card:inherits("ArcheryAttack")) then
-			if not room:askForSkillInvoke(player, "lingxi") then
-				return false
-			end
-			local judge = sgs.JudgeStruct()
-			judge.pattern = sgs.QRegExp("(.*):(diamond|heart):(.*)")
-			judge.good = true
-			judge.reason = "lingxi"
-			judge.who = player
-			room:judge(judge)
-			if judge:isGood() then
-				room:sendLog(log)
-				return true
+		if event == sgs.CardEffected then
+			if card:inherits("Slash") or card:inherits("ArcheryAttack") then
+				if not room:askForSkillInvoke(player, "lingxi") then
+					return false
+				end
+				local judge = sgs.JudgeStruct()
+				judge.pattern = sgs.QRegExp("(.*):(diamond|heart):(.*)")
+				judge.good = true
+				judge.reason = "lingxi"
+				judge.who = player
+				room:judge(judge)
+				if judge:isGood() then
+					room:sendLog(log)
+					return true
+				else
+					player:obtainCard(judge.card)
+				end
+			elseif card:inherits("Duel") or card:inherits("SavageAssault") then
+				if not room:askForSkillInvoke(player, "lingxi") then
+					return false
+				end
+				local judge = sgs.JudgeStruct()
+				judge.pattern = sgs.QRegExp("(.*):(club|spade):(.*)")
+				judge.good = true
+				judge.reason = "lingxi"
+				judge.who = player
+				room:judge(judge)
+				if judge:isGood() then
+					--room:sendLog(log)
+					return true
+				else
+					player:obtainCard(judge.card)
+				end
 			end
 		end
 	end,
 }
 
+--不防 - 陆小凤
+--锁定技，你的每一张防具手牌都视为【铁索连环】
+bufang = sgs.CreateFilterSkill{
+	name = "bufang",
+	view_as = function(self, card)
+		local filtered = sgs.Sanguosha:cloneCard("iron_chain", card:getSuit(), card:getNumber())
+		filtered:addSubcard(card)
+		filtered:setSkillName(self:objectName())
+		return filtered
+	end,
+	view_filter = function(self, to_select)
+		return to_select:inherits("Armor") and not to_select:isEquipped()
+	end,
+}
+
 --飞刀 - 李寻欢
---锁定技，你使用的【杀】，无视角色防具
+--锁定技，当你使用【杀】指定一名角色为目标后，无视其防具
 feidao = sgs.CreateTriggerSkill {
 	events = sgs.CardUsed,
 	frequency = sgs.Skill_Compulsory,
@@ -158,6 +193,33 @@ feidao = sgs.CreateTriggerSkill {
 			end
 		end
 	end,
+}
+
+bisha = sgs.CreateTriggerSkill {
+	name = "bisha",
+	events = {
+		sgs.SlashProceed,
+		sgs.Predamage
+	},
+	on_trigger = function(self, event, player, data)
+		local room = player:getRoom()
+		local glh = player:getLostHp()
+		if event == sgs.SlashProceed and glh > 0 then
+			if not room:askForSkillInvoke(player, self:objectName()) then
+				return false
+			end
+			room:setPlayerFlag(player, "bisha_used")
+		elseif event == sgs.Predamage and player:hasFlag("bisha_used") then
+			local damage = data:toDamage()
+			local card = damage.card
+			if card:inherits("Slash") then
+				damage.damage = damage.damage + glh
+				data:setValue(damage)
+				room:setPlayerFlag(player, "-bisha_used")
+				return true
+			end
+		end
+	end
 }
 
 --出尘 - 无花
@@ -257,8 +319,9 @@ chuliuxiang : addSkill(liuxiang)
 --chuliuxiang : addSkill(tayue)
 
 --陆小凤
-luxiaofeng = sgs.General(extension, "luxiaofeng", "qun", 4, true)
+luxiaofeng = sgs.General(extension, "luxiaofeng", "qun", 3, true)
 luxiaofeng : addSkill(lingxi)
+luxiaofeng : addSkill(bufang)
 
 --李寻欢
 lixunhuan = sgs.General(extension, "lixunhuan", "qun", 4, true)
@@ -289,19 +352,23 @@ sgs.LoadTranslationTable {
 			["@daoshuai_card"] = "盗帅",
 			["liuxiang"] = "留香",
 			[":liuxiang"] = "<b>锁定技</b>，你的手牌上限始终+1",
+			["tayue"] = "踏月",
+			[":tayue"] = "锁定技，当你计算与其他角色的距离时，始终-1;当其他角色计算与你的距离时，始终+1",
 
 		["luxiaofeng"] = "陆小凤",
 		["#luxiaofeng"] = "四条眉毛",
 		["designer:luxiaofeng"] = "布景",
 			["lingxi"] = "灵犀",
-			[":lingxi"] = "当你成为【杀】、【决斗】、【南蛮入侵】或【万箭齐发】的目标时，你可以进行一次判定，若结果为红色，则此【杀】、【决斗】、【南蛮入侵】或【万箭齐发】对你无效",
+			[":lingxi"] = "当你成为【杀】或【万箭齐发】的目标时，你可以进行一次判定，若结果为红色，则此【杀】或【万箭齐发】对你无效，若判定失败，你获得该判定牌；当你成为【决斗】或【南蛮入侵】的目标时，你可以进行一次判定，若结果为黑色，则此【决斗】或【南蛮入侵】对你无效，若判定失败，你获得该判定牌",
 			["#lingxi"] = "%from 使用了<b>【<font color='yellow'>灵犀</font>】</b>技能，<b>%arg</b> 无效",
+			["bufang"] = "不防",
+			[":bufang"] = "<b>锁定技</b>，你的每一张防具手牌都视为【铁索连环】",
 
 		["lixunhuan"] = "李寻欢",
 		["#lixunhuan"] = "探花郎",
 		["designer:lixunhuan"] = "布景",
 			["feidao"] = "飞刀",
-			[":feidao"] = "<b>锁定技</b>，你使用的【杀】，无视角色防具",
+			[":feidao"] = "<b>锁定技</b>，当你使用【杀】指定一名角色为目标后，无视其防具",
 
 		["wuhua"] = "无花",
 		["#wuhua"] = "妙僧",
